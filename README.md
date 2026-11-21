@@ -1,27 +1,41 @@
-# BancoCloud · DSY1107 · Evaluación Parcial 5
+# BancoCloud
 
-Aplicación bancaria con React, TypeScript y microservicios Java 21 con Spring Boot. Un **Cliente** solicita cuentas y consulta su estado. Un **Empleado** revisa solicitudes, habilita cuentas y administra la mensajería. Amazon Cognito emite el JWT que el frontend adjunta y el backend valida.
+Aplicación bancaria para solicitar y gestionar cuentas. Los clientes pueden crear solicitudes y consultar sus cuentas. Los empleados pueden aprobar o rechazar solicitudes, habilitar cuentas y administrar la mensajería desde el panel.
+
+**Frontend:** React, TypeScript y Vite.  
+**Backend:** Java 21 y Spring Boot.  
+**Infraestructura:** MySQL, RabbitMQ, Kafka y AWS.
 
 ## Arquitectura
 
-- **AWS.** Amplify aloja el frontend. API Gateway dirige las peticiones al balanceador `BancoCloud-ALB`, que las entrega a `banco-bff` en EC2. Los microservicios usan MySQL en RDS.
-- **RabbitMQ.** Mantiene el flujo operativo de solicitudes. El panel de Empleado permite enviar mensajes de prueba y administrar colas, exchanges y bindings. Los consumidores registran errores y derivan los mensajes fallidos a su DLQ.
-- **Kafka.** Las solicitudes creadas y las cuentas habilitadas generan eventos. `kafka-service` los consume, registra métricas en MySQL y ofrece el panel de administración a través del BFF.
+[La aplicación publicada en Amplify](https://main.d2anm3z9q7k9u4.amplifyapp.com/) utiliza Amazon Cognito para iniciar sesión. El frontend envía el JWT a API Gateway, que dirige las solicitudes al BFF en EC2 a través de un balanceador. Los microservicios guardan los datos en MySQL sobre Amazon RDS.
 
-| Tópico Kafka | Grupo consumidor | Retención |
-|---|---|---:|
-| `bancocloud.solicitudes.creadas.v1` | `bancocloud-analitica-solicitudes-v1` | 7 días |
-| `bancocloud.cuentas.habilitadas.v1` | `bancocloud-analitica-cuentas-v1` | 30 días |
+| Módulo | Puerto | Responsabilidad |
+|---|---:|---|
+| `banco-frontend` | 5173 | Interfaz para clientes y empleados |
+| `banco-bff` | 8080 | Entrada al backend, autorización y coordinación de servicios |
+| `cuentas-service` | 8081 | Gestión y habilitación de cuentas |
+| `solicitudes-service` | 8082 | Creación, aprobación y rechazo de solicitudes |
+| `kafka-service` | 8083 | Consumo de eventos, métricas y administración de Kafka |
 
-Los tópicos de negocio tienen **3 particiones** y usan `cleanup.policy=delete`. Docker Compose levanta **3 brokers en local**, con factor de replicación `3` y `min.insync.replicas=2`. En AWS se verificó la integración en una **EC2 `t3.small` con un broker Kafka en modo KRaft**, factor de replicación `1` y `min.insync.replicas=1`.
+**RabbitMQ** maneja la mensajería operativa de solicitudes, los reintentos y los mensajes fallidos mediante una DLQ. Desde el panel de Empleado se pueden consultar y administrar colas, exchanges y bindings.
 
-## Cómo levantar BancoCloud en local
+**Kafka** registra los eventos de solicitudes creadas y cuentas habilitadas. `kafka-service` consume ambos flujos y guarda las métricas en MySQL. El menú **Empleado → Kafka** permite consultar métricas y grupos de consumidores, crear y eliminar tópicos y cambiar su retención.
 
-Necesitas Docker Compose, Java 21, Node.js 22.12 o superior y una cuenta de Cognito. El listado administrativo de usuarios también requiere credenciales AWS con acceso al pool de Cognito.
+| Tópico | Retención |
+|---|---:|
+| `bancocloud.solicitudes.creadas.v1` | 7 días |
+| `bancocloud.cuentas.habilitadas.v1` | 30 días |
 
-### 1. Levanta Docker
+Los tópicos tienen **3 particiones**. El entorno local usa **3 brokers con ZooKeeper** y Kafka UI. El despliegue en AWS usa **1 broker Kafka en modo KRaft**, con factor de replicación `1`.
 
-En la raíz del proyecto, crea `.env` a partir de [`.env.example`](.env.example) si todavía no existe. Define allí el usuario y la contraseña de RabbitMQ. Después ejecuta:
+## Ejecución local
+
+**Requisitos:** Docker con Compose, Java 21, Node.js 22.12 o superior y una cuenta de Cognito.
+
+### 1. Levanta la infraestructura
+
+Desde la raíz, crea `.env` usando [`.env.example`](.env.example) como plantilla y define las credenciales locales de RabbitMQ. Luego ejecuta:
 
 ~~~powershell
 docker compose --profile rabbitmq-cluster up -d --wait rabbitmq-cluster-1 rabbitmq-cluster-2 rabbitmq-cluster-3
@@ -29,21 +43,21 @@ docker compose --profile kafka up -d --wait --wait-timeout 240 kafka-ui
 docker start bancocloud-mysql-local
 ~~~
 
-El primer comando inicia los tres nodos de RabbitMQ. El segundo inicia ZooKeeper, tres brokers de Kafka y [Kafka UI](http://localhost:8085/). El último inicia la base de pruebas en el puerto `3307`.
+Kafka UI está disponible en [localhost:8085](http://localhost:8085/).
 
 <details>
-<summary>Si todavía no tienes el contenedor MySQL local</summary>
+<summary>Crear el contenedor MySQL en la primera ejecución</summary>
 
-En la raíz, crea `.env.mysql-local` con los valores de abajo. Elige tus propias contraseñas de prueba.
+Crea `.env.mysql-local` en la raíz con estos valores. Elige tus propias contraseñas de prueba.
 
 ~~~dotenv
 MYSQL_DATABASE=bancocloud_local
 MYSQL_USER=usuario_local
-MYSQL_PASSWORD=reemplaza_por_una_clave_local
-MYSQL_ROOT_PASSWORD=reemplaza_por_otra_clave_local
+MYSQL_PASSWORD=tu_clave_mysql
+MYSQL_ROOT_PASSWORD=tu_clave_root
 ~~~
 
-Ejecuta este comando una sola vez en lugar de `docker start bancocloud-mysql-local`:
+Ejecuta este comando una sola vez en lugar de `docker start`:
 
 ~~~powershell
 docker run -d --name bancocloud-mysql-local -p 127.0.0.1:3307:3306 --env-file .env.mysql-local -v bancocloud-mysql-local-data:/var/lib/mysql mysql:8.4
@@ -51,9 +65,9 @@ docker run -d --name bancocloud-mysql-local -p 127.0.0.1:3307:3306 --env-file .e
 
 </details>
 
-### 2. Guarda la configuración del backend
+### 2. Configura e inicia el backend
 
-Crea `application-local.properties` en la **raíz del proyecto**, al lado del Compose. Cambia los usuarios y las contraseñas por los de tus contenedores locales. Los de RabbitMQ son los mismos que pusiste en `.env`.
+Crea `application-local.properties` en la raíz. Usa el usuario y la contraseña del contenedor MySQL y los valores de RabbitMQ de tu `.env`.
 
 ~~~properties
 DB_URL=jdbc:mysql://127.0.0.1:3307/bancocloud_local?sslMode=DISABLED&allowPublicKeyRetrieval=true
@@ -68,29 +82,18 @@ KAFKA_CUENTAS_ENABLED=true
 server.address=127.0.0.1
 ~~~
 
-Los microservicios comparten este archivo y se conectan a los brokers locales en los puertos `9092`, `9093` y `9094`. Git ignora los archivos de configuración local.
-
-### 3. Inicia los microservicios
-
-Abre una terminal PowerShell por módulo, entra a su carpeta y ejecuta estas dos líneas:
+Abre una terminal PowerShell dentro de cada módulo Java y ejecuta las mismas dos líneas:
 
 ~~~powershell
 $env:SPRING_CONFIG_ADDITIONAL_LOCATION = 'file:../application-local.properties'
 .\mvnw.cmd spring-boot:run
 ~~~
 
-| Carpeta | Comprobación |
-|---|---|
-| `cuentas-service` | [Estado en el puerto 8081](http://localhost:8081/actuator/health) |
-| `solicitudes-service` | [Estado en el puerto 8082](http://localhost:8082/actuator/health) |
-| `kafka-service` | [Estado en el puerto 8083](http://localhost:8083/actuator/health) |
-| `banco-bff` | [Estado en el puerto 8080](http://localhost:8080/actuator/health) |
+Comprueba que `/actuator/health` devuelva `UP` en los puertos `8080`, `8081`, `8082` y `8083`.
 
-Cada enlace debe mostrar `UP`. Si un puerto ya está ocupado, revisa su enlace antes de iniciar otra instancia.
+### 3. Inicia el frontend
 
-### 4. Abre el frontend
-
-En otra terminal PowerShell, desde la raíz del proyecto:
+Desde la raíz del proyecto, en otra terminal PowerShell:
 
 ~~~powershell
 Set-Location banco-frontend
@@ -99,27 +102,15 @@ npm.cmd ci
 npm.cmd run dev -- --strictPort
 ~~~
 
-Abre [BancoCloud local](http://localhost:5173/). Para comprobar el build, ejecuta `npm.cmd run build` desde `banco-frontend`.
+Abre [BancoCloud local](http://localhost:5173/). Usa `npm.cmd run build` para generar el build de producción.
 
-## Guía de revisión de la Evaluación Parcial 5
+## Probar el flujo
 
-| Indicador | Dónde revisarlo |
-|---|---|
-| **Configuración del cliente Kafka (12%)** | [Docker Compose](docker-compose.yml) y propiedades de [solicitudes](solicitudes-service/src/main/resources/application.properties), [cuentas](cuentas-service/src/main/resources/application.properties) y [Kafka](kafka-service/src/main/resources/application.properties). Incluyen brokers, serialización, grupos y confirmación de mensajes. |
-| **DTO, productores y consumidores (12% + 14% + 14%)** | El [productor de solicitudes](solicitudes-service/src/main/java/cl/duoc/solicitudes_service/messaging/kafka/SolicitudKafkaPublisher.java) y el [productor de cuentas](cuentas-service/src/main/java/cl/duoc/cuentas_service/messaging/kafka/CuentaKafkaPublisher.java) registran el evento tipado en una tabla de pendientes junto con el cambio de negocio y lo envían como JSON. Los [listeners](kafka-service/src/main/java/cl/duoc/kafka_service/eventos/ConsumidoresKafka.java) delegan el procesamiento a [AnaliticaKafka](kafka-service/src/main/java/cl/duoc/kafka_service/analitica/AnaliticaKafka.java), que deduplica por `eventId`. |
-| **Administración de tópicos y grupos (6% + 6%)** | Panel **Empleado → Kafka** y [API administrativa](kafka-service/src/main/java/cl/duoc/kafka_service/admin/KafkaAdminController.java). El panel permite crear, listar, cambiar la retención y eliminar tópicos, además de consultar grupos. La API permite aumentar particiones, restablecer configuraciones y administrar offsets de grupos inactivos. |
-| **Manejo de fallos (12%)** | [Configuración de reintentos y DLT](kafka-service/src/main/java/cl/duoc/kafka_service/config/KafkaInfraestructura.java). Los mensajes inválidos van al tópico `.DLT` de su flujo. Los fallos transitorios admiten dos reintentos y los logs permiten seguir el evento. |
-| **Parámetros de tópicos (12%)** | La pestaña **Tópicos** y Kafka UI muestran retención, líderes, particiones y réplicas sincronizadas. El servicio `kafka-topics` del Compose configura los tópicos de negocio para la prueba local. |
-| **Grupos y reparto de carga (12%)** | En **Grupos**, revisa miembros, offsets y lag. Para probar el rebalanceo en local, inicia una segunda instancia de `kafka-service` con la misma configuración y `KAFKA_SERVICE_PORT=8084`. Observa cómo se reparten las particiones y cómo vuelven al primer consumidor al detener la segunda instancia. |
+1. Inicia sesión como **Cliente** y crea una solicitud de prueba.
+2. Inicia sesión como **Empleado** y aprueba esa solicitud.
+3. Ve a **Kafka → Métricas**. Deben aparecer un evento de **Solicitudes creadas** y otro de **Cuentas habilitadas**.
+4. En **Grupos**, revisa los offsets y el lag. En **RabbitMQ**, revisa las colas, los exchanges y los bindings.
 
-## Demostración y resultados
+Si pruebas la creación de tópicos desde el panel, usa **3 réplicas en local** y **1 en AWS**.
 
-1. Crea una solicitud como **Cliente** y apruébala como **Empleado**. En **Kafka → Métricas**, comprueba que aparezcan **Solicitudes creadas** y **Cuentas habilitadas**.
-2. En **Grupos**, comprueba que el offset confirmado alcance al offset final y que el lag sea `0` en las particiones con eventos. En **RabbitMQ**, verifica que carguen colas, exchanges y bindings.
-3. En **Kafka → Tópicos**, crea un tópico temporal como `bancocloud.ep5.prueba.frontend`. Usa **3 réplicas en local** o **1 réplica en AWS**. Cambia la retención de `86400000` a `172800000` ms y elimina ese tópico. El contador debe volver a su valor inicial.
-
-**Resultado en local.** Se verificaron los dos eventos de negocio, el rebalanceo y la creación, el cambio de retención y la eliminación de un tópico temporal.
-
-**Resultado en AWS.** Los cuatro servicios respondieron `UP`. El [panel publicado en Amplify](https://main.d2anm3z9q7k9u4.amplifyapp.com/) mostró **2 eventos procesados de Cuenta Ahorro**: una solicitud creada y una cuenta habilitada. También mostró **4 tópicos y 2 grupos de consumidores**. Para acceder al panel de Kafka, inicia sesión con el rol **Empleado**.
-
-Las [pruebas de integración](kafka-service/src/test/java/cl/duoc/kafka_service/KafkaServiceIntegrationTest.java) se ejecutan con `.\mvnw.cmd test` desde `kafka-service`. Cubren consumo, deduplicación, reintentos, DLT, administración y roles. En Windows, el borrado se comprueba con el clúster de Docker porque ese caso se omite en Kafka embebido.
+Los dos flujos se verificaron de punta a punta en la aplicación publicada en Amplify. Las [pruebas de integración de Kafka](kafka-service/src/test/java/cl/duoc/kafka_service/KafkaServiceIntegrationTest.java) se ejecutan con `.\mvnw.cmd test` desde `kafka-service`.
