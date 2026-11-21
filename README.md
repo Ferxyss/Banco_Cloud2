@@ -1,73 +1,1052 @@
+
 # BancoCloud
 
-Aplicación bancaria para solicitar y gestionar cuentas. Los clientes pueden crear solicitudes y consultar sus cuentas. Los empleados pueden aprobar o rechazar solicitudes, habilitar cuentas y administrar la mensajería desde el panel.
+Aplicación bancaria desarrollada bajo una arquitectura Cloud Native utilizando servicios de AWS, microservicios con Spring Boot y un frontend desarrollado con React + TypeScript.
 
-**Frontend:** React, TypeScript y Vite.  
-**Backend:** Java 21 y Spring Boot.  
-**Infraestructura:** MySQL, RabbitMQ, Kafka y AWS.
+El proyecto permite gestionar usuarios, cuentas bancarias y solicitudes de apertura de cuentas, diferenciando los permisos de clientes y empleados mediante Amazon Cognito.
+
+---
+
+## Descripción del proyecto
+
+BancoCloud permite gestionar las siguientes funcionalidades:
+
+### Cliente
+
+- Registrarse e iniciar sesión.
+- Consultar sus cuentas bancarias.
+- Consultar sus saldos.
+- Crear solicitudes de apertura de cuentas.
+- Consultar el estado de sus solicitudes.
+
+### Empleado
+
+- Iniciar sesión con permisos administrativos.
+- Consultar todas las cuentas.
+- Consultar solicitudes de clientes.
+- Aprobar solicitudes.
+- Rechazar solicitudes.
+- Autorizar usuarios para acceder como clientes.
+- Gestionar el acceso según los grupos definidos en Amazon Cognito.
+- Consultar las métricas de Kafka y administrar sus tópicos desde el panel.
+
+Cuando una solicitud es aprobada, el sistema crea automáticamente la cuenta bancaria correspondiente y asigna un número de cuenta.
+
+---
 
 ## Arquitectura
 
-[La aplicación publicada en Amplify](https://main.d2anm3z9q7k9u4.amplifyapp.com/) utiliza Amazon Cognito para iniciar sesión. El frontend envía el JWT a API Gateway, que dirige las solicitudes al BFF en EC2 a través de un balanceador. Los microservicios guardan los datos en MySQL sobre Amazon RDS.
+La solución utiliza los siguientes componentes:
 
-| Módulo | Puerto | Responsabilidad |
-|---|---:|---|
-| `banco-frontend` | 5173 | Interfaz para clientes y empleados |
-| `banco-bff` | 8080 | Entrada al backend, autorización y coordinación de servicios |
-| `cuentas-service` | 8081 | Gestión y habilitación de cuentas |
-| `solicitudes-service` | 8082 | Creación, aprobación y rechazo de solicitudes |
-| `kafka-service` | 8083 | Consumo de eventos, métricas y administración de Kafka |
+- **AWS Amplify:** hosting y despliegue del frontend.
+- **Amazon Cognito:** autenticación, usuarios y grupos.
+- **Amazon API Gateway HTTP API:** punto de entrada de las APIs y autorización mediante JWT.
+- **BancoCloud-ALB:** balanceador al que API Gateway se conecta mediante un enlace VPC para llegar al BFF en EC2.
+- **Amazon EC2:** ejecución del backend.
+- **banco-bff:** Backend For Frontend.
+- **cuentas-service:** gestión de cuentas.
+- **solicitudes-service:** gestión de solicitudes.
+- **Amazon RDS MySQL:** persistencia de datos.
+- **RabbitMQ:** mensajería asíncrona.
+- **Apache Kafka:** transmisión de eventos de solicitudes y cuentas.
+- **kafka-service:** consumo de eventos, métricas y administración de Kafka.
+- **Nginx:** servidor web utilizado para servir el frontend.
 
-**RabbitMQ** maneja la mensajería operativa de solicitudes, los reintentos y los mensajes fallidos mediante una DLQ. Desde el panel de Empleado se pueden consultar y administrar colas, exchanges y bindings.
+```text
+React + TypeScript + Vite
+            |
+            v
+       AWS Amplify
+            |
+            v
+       Amazon Cognito
+      Autenticación/JWT
+            |
+            v
+   API Gateway HTTP API
+            |
+            v
+      BancoCloud-ALB
+            |
+            v
+        banco-bff
+            |
+       +----+----+
+       |         |
+       v         v
+cuentas-service  solicitudes-service
+       |         |
+       +----+----+
+            |
+            v
+       Amazon RDS
+          MySQL
 
-**Kafka** registra los eventos de solicitudes creadas y cuentas habilitadas. `kafka-service` consume ambos flujos y guarda las métricas en MySQL. El menú **Empleado → Kafka** permite consultar métricas y grupos de consumidores, crear y eliminar tópicos y cambiar su retención.
+         RabbitMQ
+            |
+      Exchanges / Queues
+            |
+       Producers / Consumers
+            |
+         Retry / DLQ
+```
 
-| Tópico | Retención |
+---
+
+## Tecnologías utilizadas
+
+### Frontend
+
+- React
+- TypeScript
+- Vite
+- Axios
+- React Router
+- AWS Amplify
+
+### Backend
+
+- Java 21
+- Spring Boot
+- Spring Security
+- Spring Data JPA
+- OAuth2 Resource Server
+- Lombok
+- Maven
+- Spring Boot Actuator
+- Spring AMQP
+- Spring for Apache Kafka
+
+### Base de datos
+
+- MySQL
+- Amazon RDS
+
+### Mensajería
+
+- RabbitMQ
+- Exchanges
+- Queues
+- Bindings
+- Producers
+- Consumers
+- ACK / NACK
+- Retry
+- Dead Letter Queue (DLQ)
+- Kafka con tópicos, particiones y grupos de consumidores
+- Kafka UI en el entorno local
+
+### AWS
+
+- AWS Amplify
+- Amazon Cognito
+- Amazon API Gateway
+- Amazon EC2
+- Amazon RDS
+- Amazon VPC
+- AWS Security Groups
+
+### Control de versiones
+
+- Git
+- GitHub
+
+---
+
+## Estructura del proyecto
+
+```text
+banco_cloud/
+├── banco-bff/
+│   └── Backend For Frontend
+├── banco-frontend/
+│   └── Aplicación React + TypeScript
+├── cuentas-service/
+│   └── Microservicio de cuentas
+├── solicitudes-service/
+│   └── Microservicio de solicitudes
+├── kafka-service/
+│   └── Consumo de eventos, métricas y administración de Kafka
+├── docker-compose.yml
+│   └── Infraestructura local de RabbitMQ y Kafka
+└── README.md
+```
+
+---
+
+## Autenticación y autorización
+
+La autenticación se realiza mediante **Amazon Cognito**.
+
+Se utilizan dos grupos principales:
+
+```text
+Cliente
+Empleado
+```
+
+Después de iniciar sesión, Cognito entrega tokens JWT.
+
+El frontend utiliza el token de acceso para realizar las solicitudes hacia API Gateway.
+
+Las solicitudes contienen:
+
+```http
+Authorization: Bearer <JWT>
+```
+
+API Gateway utiliza un JWT Authorizer para validar el token antes de permitir el acceso al backend.
+
+La autorización también se controla en el BFF, evitando depender únicamente de las restricciones visuales del frontend.
+
+---
+
+## Roles
+
+### Cliente
+
+El cliente puede:
+
+- Consultar sus cuentas.
+- Consultar sus saldos.
+- Crear solicitudes.
+- Consultar sus solicitudes.
+
+### Empleado
+
+El empleado puede:
+
+- Consultar todas las cuentas.
+- Consultar solicitudes.
+- Aprobar solicitudes.
+- Rechazar solicitudes.
+- Administrar usuarios.
+- Autorizar usuarios para acceder como clientes.
+
+---
+
+## Microservicios
+
+### banco-bff
+
+Puerto:
+
+```text
+8080
+```
+
+Es la capa Backend For Frontend.
+
+Se encarga de:
+
+- Recibir las solicitudes provenientes de API Gateway.
+- Validar roles.
+- Coordinar los microservicios.
+- Aplicar reglas de autorización.
+- Gestionar operaciones que involucran más de un microservicio.
+- Exponer funcionalidades administrativas de RabbitMQ y Kafka para el rol `Empleado`.
+
+### cuentas-service
+
+Puerto:
+
+```text
+8081
+```
+
+Responsable de la gestión de cuentas bancarias.
+
+Endpoints principales:
+
+```http
+GET /cuentas
+GET /cuentas/{id}
+GET /cuentas/{id}/saldo
+POST /cuentas
+PUT /cuentas/{id}/numero
+```
+
+### solicitudes-service
+
+Puerto:
+
+```text
+8082
+```
+
+Responsable de la gestión de solicitudes de apertura de cuentas.
+
+Endpoints principales:
+
+```http
+POST /solicitudes
+GET /solicitudes
+GET /solicitudes/{id}
+PUT /solicitudes/{id}/aprobar
+PUT /solicitudes/{id}/rechazar
+```
+
+### kafka-service
+
+Puerto `8083`. Consume los eventos de solicitudes creadas y cuentas habilitadas. Guarda los conteos en MySQL y expone `/api/kafka` para consultar métricas y administrar tópicos y grupos desde el BFF.
+
+---
+
+## Flujo de solicitud de cuenta
+
+Cuando un cliente solicita una nueva cuenta, la solicitud pasa por el frontend, API Gateway, BFF y `solicitudes-service`, donde se almacena en RDS MySQL.
+
+La solicitud se crea inicialmente con estado:
+
+```text
+PENDIENTE
+```
+
+Cuando un empleado aprueba la solicitud:
+
+```text
+Solicitud → APROBADA → Creación de cuenta → Asignación de número
+```
+
+El BFF coordina la actualización de la solicitud y la creación de la cuenta mediante `cuentas-service`.
+
+Si la solicitud es rechazada:
+
+```text
+Solicitud → RECHAZADA
+```
+
+No se crea una cuenta.
+
+---
+
+## Base de datos
+
+La aplicación utiliza MySQL mediante Amazon RDS.
+
+Base de datos:
+
+```text
+bancocloud
+```
+
+La conexión de los microservicios se realiza mediante Spring Data JPA.
+
+Las credenciales de la base de datos no se almacenan directamente en el código fuente.
+
+Se utiliza una variable de entorno:
+
+```text
+DB_PASSWORD
+```
+
+En el entorno EC2, la configuración sensible se mantiene fuera del repositorio.
+
+---
+
+## AWS Amplify
+
+AWS Amplify se utiliza para alojar y desplegar el frontend React.
+
+La aplicación publicada está disponible en [BancoCloud en Amplify](https://main.d2anm3z9q7k9u4.amplifyapp.com/). El menú Kafka se habilita para el rol `Empleado`.
+
+El repositorio de GitHub está conectado a Amplify para permitir despliegues automáticos cuando se realizan cambios en la rama configurada.
+
+Proceso:
+
+```text
+Git Push
+   ↓
+GitHub
+   ↓
+AWS Amplify
+   ↓
+npm ci
+   ↓
+npm run build
+   ↓
+Deploy
+```
+
+El frontend se genera mediante Vite y el resultado de producción se encuentra en:
+
+```text
+dist/
+```
+
+---
+
+## Amazon Cognito
+
+Amazon Cognito se utiliza para:
+
+- Registro de usuarios.
+- Inicio de sesión.
+- Confirmación de usuarios.
+- Gestión de grupos.
+- Emisión de tokens JWT.
+
+Grupos utilizados:
+
+```text
+Cliente
+Empleado
+```
+
+La identidad y los grupos del usuario son utilizados para aplicar las reglas de autorización correspondientes.
+
+---
+
+## Amazon API Gateway
+
+Se utiliza **API Gateway HTTP API** como punto de entrada del backend.
+
+API Gateway:
+
+- Recibe las solicitudes del frontend.
+- Valida los JWT mediante Cognito.
+- Aplica CORS.
+- Envía las solicitudes hacia el BFF a través de un enlace VPC y del balanceador `BancoCloud-ALB`.
+
+Las solicitudes sin un JWT válido son rechazadas con:
+
+```text
+401 Unauthorized
+```
+
+Esto permite comprobar que el JWT Authorizer está funcionando.
+
+---
+
+## Amazon EC2
+
+La instancia EC2 ejecuta:
+
+```text
+banco-bff
+cuentas-service
+solicitudes-service
+kafka-service
+```
+
+Los cuatro microservicios se ejecutan con `systemd`. En la EC2 `t3.small`, Kafka usa un broker KRaft en Docker y escucha en `127.0.0.1:9092`.
+
+Además, se configuró Nginx para servir el frontend.
+
+Sistema operativo:
+
+```text
+Amazon Linux 2023
+```
+
+Los servicios backend utilizan Java 21.
+
+---
+
+## Amazon RDS
+
+Amazon RDS proporciona la base de datos MySQL utilizada por los microservicios.
+
+El acceso a la base de datos se controla mediante Security Groups.
+
+El puerto utilizado por MySQL es:
+
+```text
+3306
+```
+
+El acceso está restringido mediante las reglas de red configuradas para el entorno.
+
+---
+
+## Nginx
+
+Nginx se configuró para servir el frontend generado por Vite.
+
+El flujo es:
+
+```text
+Navegador
+   ↓
+EC2 :80
+   ↓
+Nginx
+   ↓
+/var/www/banco-cloud
+   ↓
+dist/
+```
+
+La configuración utiliza `try_files` para permitir el funcionamiento de las rutas de la aplicación React.
+
+---
+
+## Seguridad
+
+Se implementaron diferentes mecanismos de seguridad:
+
+- Autenticación mediante Amazon Cognito.
+- Tokens JWT.
+- JWT Authorizer en API Gateway.
+- Grupos de usuarios para diferenciar roles.
+- Autorización en el BFF.
+- Security Groups para controlar el acceso a EC2 y RDS.
+- Credenciales fuera del código fuente.
+- Variables de entorno para información sensible.
+- CORS configurado para los orígenes utilizados.
+
+No se deben almacenar credenciales AWS, contraseñas de RDS ni tokens dentro del repositorio.
+
+---
+
+## Validaciones realizadas
+
+### Backend
+
+Se verificó el estado de los servicios mediante:
+
+```http
+GET /actuator/health
+```
+
+Los servicios respondieron correctamente con:
+
+```json
+{
+  "status": "UP"
+}
+```
+
+### API Gateway
+
+Se verificó que una solicitud sin un JWT válido sea rechazada:
+
+```text
+401 Unauthorized
+```
+
+### Cognito
+
+Se verificó:
+
+- Inicio de sesión.
+- Usuarios confirmados.
+- Grupos Cliente y Empleado.
+- Obtención de JWT.
+- Autorización de usuarios.
+
+### Cliente
+
+Se verificó:
+
+- Inicio de sesión.
+- Consulta de cuentas.
+- Consulta de saldo.
+- Creación de solicitudes.
+- Consulta de solicitudes.
+
+### Empleado
+
+Se verificó:
+
+- Consulta de cuentas.
+- Consulta de solicitudes.
+- Aprobación.
+- Rechazo.
+- Autorización de usuarios.
+
+### Integración completa
+
+Se validó el flujo:
+
+```text
+Frontend
+→ Cognito
+→ API Gateway
+→ BFF
+→ Microservicio
+→ RDS
+```
+
+---
+
+# Integración de RabbitMQ
+
+Como parte de la Evaluación Parcial N.º 3 de **DSY1107 – Desarrollo Cloud Native I**, BancoCloud incorpora RabbitMQ para implementar mensajería asíncrona y desacoplar el procesamiento de eventos entre los componentes backend.
+
+La implementación contempla configuración declarativa de colas, exchanges y bindings; publicación y consumo de eventos; confirmación manual de mensajes; reintentos; Dead Letter Queue (DLQ); y administración de recursos RabbitMQ mediante endpoints REST.
+
+## Arquitectura de mensajería
+
+El microservicio `solicitudes-service` concentra la configuración y los componentes de mensajería del dominio de solicitudes.
+
+El BFF expone las operaciones administrativas y delega su ejecución al microservicio correspondiente.
+
+```text
+                         banco-bff
+                            |
+                 /api/admin/rabbitmq
+                            |
+                            v
+                    solicitudes-service
+                            |
+              +-------------+--------------+
+              |             |              |
+              v             v              v
+        RabbitMQConfig  Publishers     Consumers
+              |             |              |
+              +-------------+--------------+
+                            |
+                            v
+                         RabbitMQ
+                            |
+          +-----------------+------------------+
+          |                 |                  |
+          v                 v                  v
+    Exchange principal  Retry Exchange    DLX / DLQ
+          |
+          v
+    Cola de solicitudes
+          |
+          v
+    SolicitudEventConsumer
+          |
+          v
+    SolicitudEventProcessor
+```
+
+## Recursos RabbitMQ configurados
+
+Los nombres de los recursos se centralizan mediante propiedades `app.rabbitmq` en `solicitudes-service/src/main/resources/application.properties` y se vinculan a `RabbitMQProperties`.
+
+| Recurso | Nombre configurado | Tipo / finalidad |
+|---|---|---|
+| Exchange principal | `bancocloud.solicitudes.exchange` | Topic |
+| Cola principal | `bancocloud.solicitudes.queue` | Cola durable |
+| Routing key principal | `solicitud.creada` | Enrutamiento de solicitudes |
+| Dead Letter Exchange | `bancocloud.solicitudes.dlx` | Direct |
+| Dead Letter Queue | `bancocloud.solicitudes.dlq` | Mensajes fallidos |
+| Routing key DLQ | `solicitud.fallida` | Enrutamiento a DLQ |
+| Retry Exchange | `bancocloud.solicitudes.retry.exchange` | Direct |
+| Retry Queue | `bancocloud.solicitudes.retry.queue` | Cola de espera |
+| Routing key Retry | `solicitud.reintento` | Enrutamiento de reintentos |
+| TTL de Retry | `5000 ms` | Tiempo de espera |
+| Máximo de intentos | `3` | Intentos configurados |
+| Exchange demo | `bancocloud.demo.exchange` | Direct |
+| Cola demo | `bancocloud.demo.queue` | Cola de demostración |
+| Routing key demo | `demo.mensaje` | Enrutamiento de mensajes demo |
+
+La configuración se declara mediante beans en `RabbitMQConfig.java`.
+
+Se definen exchanges, colas durables y bindings explícitos. La cola principal y la cola demo incluyen argumentos de Dead Letter Exchange y routing key para derivar mensajes rechazados sin reencolado.
+
+## Configuración centralizada
+
+Archivos principales:
+
+- `solicitudes-service/src/main/java/cl/duoc/solicitudes_service/config/RabbitMQConfig.java`
+- `solicitudes-service/src/main/java/cl/duoc/solicitudes_service/config/RabbitMQProperties.java`
+- `solicitudes-service/src/main/resources/application.properties`
+
+`RabbitMQProperties` utiliza `@ConfigurationProperties(prefix = "app.rabbitmq")` y validaciones como `@NotBlank`, `@NotNull` y `@Min`.
+
+`RabbitMQConfig` declara los beans de:
+
+- Exchange principal y su binding.
+- Cola principal.
+- Dead Letter Exchange, Dead Letter Queue y binding.
+- Retry Exchange, Retry Queue y binding.
+- Exchange y cola de demostración y su binding.
+- Conversor JSON basado en Jackson.
+- `SimpleRabbitListenerContainerFactory`.
+- `RabbitAdmin`.
+
+La factoría de listeners está configurada con `AcknowledgeMode.MANUAL` y `defaultRequeueRejected=false`, permitiendo que los consumidores controlen explícitamente la confirmación y el rechazo de mensajes.
+
+## Productores y consumidores
+
+### Eventos de solicitudes
+
+Se identificaron los siguientes componentes:
+
+- `SolicitudEventPublisher.java`: publica eventos utilizando el exchange y routing key definidos en `RabbitMQProperties`.
+- `SolicitudEventConsumer.java`: recibe eventos mediante `@RabbitListener`.
+- `SolicitudEventProcessor.java`: encapsula el procesamiento del evento y evita mezclar esa lógica con la configuración de RabbitMQ.
+
+El consumidor valida que el evento y sus datos obligatorios sean correctos.
+
+Si detecta datos inválidos, registra el error y ejecuta NACK sin reencolado, permitiendo que el mensaje siga la ruta de DLQ configurada.
+
+Cuando el procesamiento termina correctamente, envía ACK manual al broker.
+
+### Mensajería de demostración
+
+También existen componentes separados para demostrar el ciclo de publicación y consumo:
+
+- `DemoMessagePublisher.java`
+- `DemoMessageConsumer.java`
+- `DemoMessage.java`
+- `DemoMessageStatusService.java`
+- `DemoMessageController.java`
+
+El flujo permite publicar un mensaje de demostración y consultar su estado mediante un identificador.
+
+El estado se mantiene en memoria mediante una estructura concurrente, por lo que no constituye persistencia histórica.
+
+## Confirmación de mensajes, reintentos y DLQ
+
+El consumidor `SolicitudEventConsumer` implementa confirmación manual:
+
+- **ACK:** se envía cuando el procesamiento finaliza correctamente.
+- **NACK sin requeue:** se utiliza para mensajes con datos inválidos, permitiendo su derivación a DLQ según la configuración de la cola.
+- **Reintentos:** ante errores de procesamiento, el consumidor publica el mensaje en el Retry Exchange con el encabezado `x-retry-count`.
+- **TTL:** la Retry Queue utiliza un TTL de `5000 ms`; al vencer, el mensaje se enruta nuevamente al exchange principal.
+- **DLQ:** al agotarse los intentos configurados, el consumidor publica el evento en el Dead Letter Exchange.
+- **Publisher Confirms:** antes de confirmar el mensaje original, el consumidor espera la confirmación de publicación de RabbitMQ y comprueba si el mensaje fue devuelto.
+- **Fallo al republicar:** si no se puede confirmar la publicación hacia Retry o DLQ, el mensaje original recibe NACK con requeue para evitar perderlo.
+
+El número máximo de intentos está centralizado en `app.rabbitmq.max-attempts=3`.
+
+El timeout de confirmación de publicación está configurado mediante `app.rabbitmq.publisher-confirm-timeout=10000`.
+
+Los logs registran el procesamiento, los errores, los intentos de reenvío, el envío a DLQ y las confirmaciones.
+
+## Administración de RabbitMQ desde el BFF
+
+El BFF expone el controlador:
+
+`banco-bff/src/main/java/cl/duoc/banco_bff/controller/RabbitMQAdminBffController.java`
+
+Ruta base:
+
+```http
+/api/admin/rabbitmq
+```
+
+Las operaciones administrativas están protegidas mediante:
+
+```java
+@PreAuthorize("hasAuthority('ROLE_Empleado')")
+```
+
+### Endpoints expuestos por el BFF
+
+| Método | Endpoint | Funcionalidad |
+|---|---|---|
+| GET | `/api/admin/rabbitmq/queues` | Consultar colas |
+| GET | `/api/admin/rabbitmq/exchanges` | Consultar exchanges |
+| GET | `/api/admin/rabbitmq/bindings` | Consultar bindings |
+| POST | `/api/admin/rabbitmq/queues` | Crear cola |
+| DELETE | `/api/admin/rabbitmq/queues?nombre={nombre}` | Eliminar cola |
+| POST | `/api/admin/rabbitmq/exchanges` | Crear exchange |
+| DELETE | `/api/admin/rabbitmq/exchanges?nombre={nombre}` | Eliminar exchange |
+| POST | `/api/admin/rabbitmq/bindings` | Crear binding |
+| DELETE | `/api/admin/rabbitmq/bindings` | Eliminar binding |
+
+Para crear una cola:
+
+```json
+{
+  "nombre": "bancocloud.cola.ejemplo"
+}
+```
+
+Para crear un exchange:
+
+```json
+{
+  "nombre": "bancocloud.exchange.ejemplo",
+  "tipo": "direct"
+}
+```
+
+Para crear o eliminar un binding:
+
+```json
+{
+  "nombreCola": "bancocloud.cola.ejemplo",
+  "nombreExchange": "bancocloud.exchange.ejemplo",
+  "routingKey": "ejemplo.routing"
+}
+```
+
+El BFF delega las operaciones a `RabbitMQDemoBffService`, que utiliza `RestClient` para comunicarse con `solicitudes-service`.
+
+El controlador valida los datos obligatorios antes de delegar la operación y maneja `RestClientResponseException` para propagar el estado y cuerpo de error recibido desde el microservicio.
+
+## Administración en solicitudes-service
+
+El microservicio implementa:
+
+- `RabbitMQAdminController.java`: endpoints internos para consultar y administrar recursos.
+- `RabbitMQAdminService.java`: encapsula la creación y eliminación de colas, exchanges y bindings mediante `RabbitAdmin`.
+- `RabbitMQManagementService.java`: consulta colas, exchanges y bindings mediante la RabbitMQ Management HTTP API.
+- `RabbitMQAdminExceptionHandler`: manejo global de errores administrativos.
+
+Las consultas de recursos utilizan la Management API de RabbitMQ, mientras que las operaciones de creación y eliminación se encapsulan en el servicio administrativo.
+
+### Validaciones de entrada
+
+Los DTO del controlador utilizan validaciones Jakarta Bean Validation:
+
+- `@NotBlank` para campos obligatorios.
+- `@Size(max = 200)` para limitar la longitud.
+- `@Pattern` para restringir caracteres permitidos.
+- Validación del tipo de exchange a `direct` o `topic`.
+
+El manejador global responde con HTTP 400 para datos inválidos o cuerpos incorrectos y HTTP 500 para errores no controlados, registrando los detalles técnicos en logs sin exponerlos en la respuesta.
+
+## Pruebas y verificaciones de RabbitMQ
+
+Durante el desarrollo se realizaron verificaciones del funcionamiento de RabbitMQ en la instancia EC2. Se informó que varias pruebas ejecutadas en ese entorno finalizaron correctamente.
+
+En la revisión del repositorio se comprobó la existencia de los componentes y configuraciones descritos en esta sección.
+
+Los resultados concretos de cada prueba realizada en EC2 deben respaldarse con sus capturas, respuestas HTTP o logs correspondientes.
+
+### Matriz de seguimiento
+
+| Área | Estado |
+|---|---|
+| Configuración centralizada de nombres | Implementada en código |
+| Beans de Queue, Exchange y Binding | Declarados en `RabbitMQConfig` |
+| Separación de configuración y procesamiento | Implementada mediante clases dedicadas |
+| Consumidor de eventos de solicitudes | Implementado con `@RabbitListener` |
+| ACK manual | Implementado |
+| NACK para mensajes inválidos | Implementado |
+| Reintentos con TTL | Implementados en configuración y consumidor |
+| Derivación a DLQ | Implementada en configuración y consumidor |
+| Publisher Confirms y detección de mensajes devueltos | Configurados y utilizados en el flujo de reintentos |
+| Administración REST de colas, exchanges y bindings | Implementada en BFF y microservicio |
+| Control de acceso administrativo por rol | Implementado en el BFF |
+| Validación de parámetros | Implementada mediante validaciones y comprobaciones |
+| Pruebas funcionales en EC2 | Realizadas; resultados específicos deben acompañarse con evidencias |
+
+## Rúbrica oficial – Evaluación Parcial N.º 3
+
+La implementación se desarrolla siguiendo la pauta oficial `EP3_DSY1107_Estudiante_encargo(5).pdf`.
+
+| Indicador de evaluación | Ponderación |
 |---|---:|
-| `bancocloud.solicitudes.creadas.v1` | 7 días |
-| `bancocloud.cuentas.habilitadas.v1` | 30 días |
+| Centralización de nombres de colas, exchanges y bindings | 12% |
+| Beans de configuración RabbitMQ (`Queue`, `Exchange` y `Binding`) | 13% |
+| Separación entre lógica de negocio y configuración de mensajería | 10% |
+| Implementación y organización de consumidores | 15% |
+| Confirmación de mensajes y manejo explícito de errores | 20% |
+| Endpoints REST del microservicio administrador | 13% |
+| Encapsulación de la administración en un servicio dedicado | 10% |
+| Validación de parámetros de entrada | 7% |
+| **Total** | **100%** |
 
-Los tópicos tienen **3 particiones**. El entorno local usa **3 brokers con ZooKeeper** y Kafka UI. El despliegue en AWS usa **1 broker Kafka en modo KRaft**, con factor de replicación `1`.
+La rúbrica anterior es la referencia para el proyecto BancoCloud. La pauta de ponderaciones 18/20/35/15/12 corresponde a un cuestionario distinto y no reemplaza la evaluación oficial del proyecto.
+
+## Configuración de RabbitMQ
+
+Las propiedades de conexión se definen mediante variables de entorno:
+
+```properties
+spring.rabbitmq.host=${RABBITMQ_HOST:localhost}
+spring.rabbitmq.port=${RABBITMQ_PORT:5672}
+spring.rabbitmq.username=${RABBITMQ_USERNAME}
+spring.rabbitmq.password=${RABBITMQ_PASSWORD}
+```
+
+Las confirmaciones de publicación están configuradas mediante:
+
+```properties
+spring.rabbitmq.publisher-confirm-type=correlated
+spring.rabbitmq.publisher-returns=true
+spring.rabbitmq.template.mandatory=true
+```
+
+La Management API utiliza:
+
+```properties
+app.rabbitmq.management.api-url=${RABBITMQ_MANAGEMENT_URL:http://localhost:15672}
+app.rabbitmq.management.username=${RABBITMQ_USERNAME}
+app.rabbitmq.management.password=${RABBITMQ_PASSWORD}
+```
+
+No se deben subir credenciales, contraseñas, tokens ni archivos `.env` al repositorio.
+
+### Docker Compose
+
+El repositorio incluye un servicio RabbitMQ con imagen `rabbitmq:4-management`, persistencia mediante volumen y healthcheck.
+
+```yaml
+services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: bancocloud-rabbitmq
+    hostname: bancocloud-rabbitmq
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:
+```
+
+Los puertos se publican en `127.0.0.1` para limitar el acceso a la interfaz local del host. En EC2, el acceso remoto debe controlarse mediante la configuración de red y Security Groups.
+
+---
+
+# Integración de Kafka
+
+BancoCloud incorpora Apache Kafka para registrar la creación de solicitudes y la habilitación de cuentas. RabbitMQ mantiene el flujo operativo de solicitudes. Kafka alimenta el panel de métricas y permite consultar cómo se procesan los eventos.
+
+~~~text
+solicitudes-service ── SolicitudCreada ───┐
+                                         v
+                                      Kafka ── kafka-service ── MySQL en RDS
+                                         ^
+cuentas-service ────── CuentaHabilitada ──┘
+
+Frontend /kafka ── banco-bff /api/admin/kafka ── kafka-service /api/kafka
+~~~
+
+## Productores, tópicos y consumidores
+
+| Evento | Tópico | Grupo consumidor | Retención por tiempo |
+|---|---|---|---:|
+| `SolicitudCreada` | `bancocloud.solicitudes.creadas.v1` | `bancocloud-analitica-solicitudes-v1` | 7 días |
+| `CuentaHabilitada` | `bancocloud.cuentas.habilitadas.v1` | `bancocloud-analitica-cuentas-v1` | 30 días |
+
+Al crear una solicitud o asignar por primera vez el número a una cuenta, el microservicio guarda el cambio de negocio y el evento pendiente en la misma transacción de MySQL. Una tarea programada publica los eventos pendientes en Kafka como JSON. La clave corresponde al identificador de la solicitud o cuenta para mantener el orden de los eventos de esa entidad en la misma partición.
+
+`kafka-service` consume los tópicos con dos grupos independientes y guarda las métricas en `kafka_eventos_procesados`. El identificador `eventId` evita contar dos veces un evento reenviado. El consumidor confirma el offset después de procesar el registro. Los fallos transitorios admiten dos reintentos y los mensajes inválidos se envían al tópico `.DLT` del flujo correspondiente.
+
+## Configuración de Kafka en local y AWS
+
+En ambos entornos, cada tópico de negocio tiene tres particiones y usa `cleanup.policy=delete`. Las particiones permiten distribuir el consumo entre instancias de un mismo grupo.
+
+| Configuración | Entorno local | AWS EC2 |
+|---|---|---|
+| Brokers | Tres, con ZooKeeper | Uno, con KRaft |
+| Factor de replicación | 3 | 1 |
+| Mínimo de réplicas sincronizadas | 2 | 1 |
+| Conexión de los productores y consumidores | `localhost:9092,localhost:9093,localhost:9094` | `127.0.0.1:9092` |
+| Administración | Panel de BancoCloud y Kafka UI | Panel de BancoCloud en Amplify |
+
+Los productores se habilitan con `KAFKA_SOLICITUDES_ENABLED` y `KAFKA_CUENTAS_ENABLED`. El BFF se comunica con `kafka-service` mediante `KAFKA_SERVICE_URL`, cuyo valor en la misma máquina es `http://localhost:8083`. En EC2, los tópicos de mensajes fallidos se configuran con `KAFKA_DLQ_REPLICAS=1` y `KAFKA_DLQ_MIN_ISR=1` para usar el broker único.
+
+## Administración de Kafka desde el frontend
+
+La opción **Kafka** aparece en el menú de **Empleado**. El BFF recibe el JWT de Cognito y lo reenvía a `kafka-service`. Ambos validan el acceso por rol.
+
+- **Métricas:** total de eventos procesados y detalle por tipo de cuenta.
+- **Tópicos:** consulta de particiones, réplicas y retención. Permite crear tópicos, cambiar su retención y eliminarlos con confirmación.
+- **Grupos:** consulta del estado, miembros, offsets y lag por partición.
+
+El panel utiliza `/api/admin/kafka` en el BFF. La API de `kafka-service`, bajo `/api/kafka`, también permite aumentar particiones, restablecer configuraciones de tópicos y administrar offsets de grupos inactivos. Las rutas están en [KafkaAdminController](kafka-service/src/main/java/cl/duoc/kafka_service/admin/KafkaAdminController.java).
+
+## Pruebas y verificaciones de Kafka
+
+- **Local:** se verificaron la publicación y el consumo de los dos eventos, el rebalanceo de consumidores y la creación, el cambio de retención y la eliminación de un tópico de prueba.
+- **AWS:** desde Amplify se creó y aprobó una solicitud de **Cuenta Ahorro**. El panel mostró **dos eventos procesados**, una solicitud creada y una cuenta habilitada. También mostró **cuatro tópicos y dos grupos de consumidores**. Los cuatro servicios Java respondieron `UP` en EC2.
+- Las [pruebas de integración de Kafka](kafka-service/src/test/java/cl/duoc/kafka_service/KafkaServiceIntegrationTest.java) se ejecutan con `.\mvnw.cmd test` desde `kafka-service`. Cubren producción y consumo de eventos, deduplicación, DLT, reintentos, administración y autorización.
+
+Para repetir el flujo desde la web, crea una solicitud como **Cliente**, apruébala como **Empleado** y abre **Kafka → Métricas**. En **Grupos**, puedes comprobar el offset confirmado y el lag. Si creas un tópico temporal desde el panel, usa tres réplicas en local o una en AWS.
+
+---
 
 ## Ejecución local
 
-**Requisitos:** Docker con Compose, Java 21, Node.js 22.12 o superior y una cuenta de Cognito.
+### Requisitos
 
-### 1. Levanta la infraestructura
+- Node.js 22.12 o superior
+- npm
+- Java 21
+- Maven o Maven Wrapper
+- Git
+- Docker con Docker Compose
+- Acceso a MySQL o a la instancia RDS configurada
+- RabbitMQ disponible y configurado para los microservicios.
 
-Desde la raíz, crea `.env` usando [`.env.example`](.env.example) como plantilla y define las credenciales locales de RabbitMQ. Luego ejecuta:
+### Iniciar RabbitMQ
 
-~~~powershell
-docker compose --profile rabbitmq-cluster up -d --wait rabbitmq-cluster-1 rabbitmq-cluster-2 rabbitmq-cluster-3
+Configurar las variables requeridas en un archivo `.env` local, tomando como referencia `.env.example`.
+
+Luego ejecutar:
+
+```bash
+docker compose up -d rabbitmq
+```
+
+Comprobar el estado del contenedor:
+
+```bash
+docker compose ps
+```
+
+La interfaz de administración de RabbitMQ utiliza el puerto `15672` y el protocolo AMQP utiliza el puerto `5672`.
+
+### Iniciar Kafka
+
+Desde la raíz, usa el perfil `kafka` del mismo `docker-compose.yml`:
+
+~~~bash
 docker compose --profile kafka up -d --wait --wait-timeout 240 kafka-ui
-docker start bancocloud-mysql-local
 ~~~
 
-Kafka UI está disponible en [localhost:8085](http://localhost:8085/).
+Este comando inicia ZooKeeper, los tres brokers y [Kafka UI](http://localhost:8085/). El servicio `kafka-topics` crea los dos tópicos de negocio al iniciar el clúster.
 
-<details>
-<summary>Crear el contenedor MySQL en la primera ejecución</summary>
+Para levantar también el clúster local de RabbitMQ, ejecuta:
 
-Crea `.env.mysql-local` en la raíz con estos valores. Elige tus propias contraseñas de prueba.
-
-~~~dotenv
-MYSQL_DATABASE=bancocloud_local
-MYSQL_USER=usuario_local
-MYSQL_PASSWORD=tu_clave_mysql
-MYSQL_ROOT_PASSWORD=tu_clave_root
+~~~bash
+docker compose --profile rabbitmq-cluster up -d --wait rabbitmq-cluster-1 rabbitmq-cluster-2 rabbitmq-cluster-3
 ~~~
 
-Ejecuta este comando una sola vez en lugar de `docker start`:
+El clúster de RabbitMQ usa `5673` para AMQP y `15673` para administración. El contenedor individual documentado arriba usa `5672` y `15672`.
 
-~~~powershell
-docker run -d --name bancocloud-mysql-local -p 127.0.0.1:3307:3306 --env-file .env.mysql-local -v bancocloud-mysql-local-data:/var/lib/mysql mysql:8.4
-~~~
+### Frontend
 
-</details>
+Ingresar al directorio:
 
-### 2. Configura e inicia el backend
+```bash
+cd banco-frontend
+```
 
-Crea `application-local.properties` en la raíz. Usa el usuario y la contraseña del contenedor MySQL y los valores de RabbitMQ de tu `.env`.
+Instalar dependencias:
+
+```bash
+npm install
+```
+
+Para ejecutar el frontend en local, define `VITE_API_BASE_URL=http://localhost:8080` en `banco-frontend/.env.local`. Después ejecuta:
+
+```bash
+npm run dev
+```
+
+Generar build de producción:
+
+```bash
+npm run build
+```
+
+### Backend
+
+Cada microservicio puede ejecutarse mediante Maven.
+
+Ejemplo:
+
+```bash
+mvn spring-boot:run
+```
+
+Para arrancar los cuatro módulos en Windows con la misma configuración, crea `application-local.properties` en la raíz del proyecto. Usa los datos de tu MySQL de prueba y del RabbitMQ que levantaste. Este ejemplo usa MySQL en `3307` y el clúster RabbitMQ:
 
 ~~~properties
 DB_URL=jdbc:mysql://127.0.0.1:3307/bancocloud_local?sslMode=DISABLED&allowPublicKeyRetrieval=true
@@ -79,38 +1058,125 @@ RABBITMQ_PORT=5673
 RABBITMQ_MANAGEMENT_URL=http://127.0.0.1:15673
 KAFKA_SOLICITUDES_ENABLED=true
 KAFKA_CUENTAS_ENABLED=true
-server.address=127.0.0.1
 ~~~
 
-Abre una terminal PowerShell dentro de cada módulo Java y ejecuta las mismas dos líneas:
+Abre una terminal PowerShell dentro de cada módulo y ejecuta estas dos líneas:
 
 ~~~powershell
 $env:SPRING_CONFIG_ADDITIONAL_LOCATION = 'file:../application-local.properties'
 .\mvnw.cmd spring-boot:run
 ~~~
 
-Comprueba que `/actuator/health` devuelva `UP` en los puertos `8080`, `8081`, `8082` y `8083`.
+Comprueba `/actuator/health` en los puertos `8080`, `8081`, `8082` y `8083`. Cada servicio debe responder `UP`.
 
-### 3. Inicia el frontend
+Puertos utilizados:
 
-Desde la raíz del proyecto, en otra terminal PowerShell:
+```text
+banco-bff           → 8080
+cuentas-service     → 8081
+solicitudes-service → 8082
+kafka-service       → 8083
+Kafka UI local      → 8085
+RabbitMQ AMQP       → 5672
+RabbitMQ Management → 15672
+```
 
-~~~powershell
-Set-Location banco-frontend
-$env:VITE_API_BASE_URL = 'http://localhost:8080'
-npm.cmd ci
-npm.cmd run dev -- --strictPort
-~~~
+---
 
-Abre [BancoCloud local](http://localhost:5173/). Usa `npm.cmd run build` para generar el build de producción.
+## Despliegue
 
-## Probar el flujo
+La solución se encuentra distribuida de la siguiente manera:
 
-1. Inicia sesión como **Cliente** y crea una solicitud de prueba.
-2. Inicia sesión como **Empleado** y aprueba esa solicitud.
-3. Ve a **Kafka → Métricas**. Deben aparecer un evento de **Solicitudes creadas** y otro de **Cuentas habilitadas**.
-4. En **Grupos**, revisa los offsets y el lag. En **RabbitMQ**, revisa las colas, los exchanges y los bindings.
+| Componente | Servicio |
+|---|---|
+| Frontend | AWS Amplify |
+| Autenticación | Amazon Cognito |
+| API | API Gateway HTTP API y BancoCloud-ALB |
+| BFF | Amazon EC2 |
+| cuentas-service | Amazon EC2 |
+| solicitudes-service | Amazon EC2 |
+| kafka-service | Amazon EC2 |
+| Base de datos | Amazon RDS MySQL |
+| Mensajería operativa | RabbitMQ en Docker |
+| Eventos para analítica | Kafka en Docker |
 
-Si pruebas la creación de tópicos desde el panel, usa **3 réplicas en local** y **1 en AWS**.
+El frontend se actualiza mediante el flujo:
 
-Los dos flujos se verificaron de punta a punta en la aplicación publicada en Amplify. Las [pruebas de integración de Kafka](kafka-service/src/test/java/cl/duoc/kafka_service/KafkaServiceIntegrationTest.java) se ejecutan con `.\mvnw.cmd test` desde `kafka-service`.
+```text
+Desarrollo
+   ↓
+Git
+   ↓
+GitHub
+   ↓
+AWS Amplify
+   ↓
+Build
+   ↓
+Deploy
+```
+
+---
+
+## Servicios y puertos
+
+| Componente | Puerto |
+|---|---:|
+| banco-bff | 8080 |
+| cuentas-service | 8081 |
+| solicitudes-service | 8082 |
+| kafka-service | 8083 |
+| Kafka UI local | 8085 |
+| Brokers Kafka locales | 9092, 9093, 9094 |
+| Broker Kafka en EC2 | 9092 de la propia instancia |
+| MySQL / RDS | 3306 |
+| MySQL local de prueba | 3307 |
+| HTTP / Nginx | 80 |
+| RabbitMQ AMQP | 5672 |
+| RabbitMQ Management | 15672 |
+
+---
+
+## Flujo funcional principal
+
+### Crear una solicitud
+
+1. El cliente inicia sesión mediante Cognito.
+2. Cognito entrega el JWT.
+3. El frontend envía la solicitud a API Gateway.
+4. API Gateway valida el JWT.
+5. La solicitud llega al BFF.
+6. El BFF envía la operación a `solicitudes-service`.
+7. La solicitud se almacena en RDS con estado `PENDIENTE`.
+8. Con Kafka habilitado, `solicitudes-service` publica `SolicitudCreada` y el consumidor actualiza las métricas.
+
+### Aprobar una solicitud
+
+1. El empleado inicia sesión.
+2. Cognito identifica al usuario como `Empleado`.
+3. El empleado aprueba la solicitud.
+4. API Gateway valida el JWT.
+5. El BFF valida los permisos.
+6. La solicitud cambia a `APROBADA`.
+7. Se crea una nueva cuenta mediante `cuentas-service`.
+8. Se asigna el número de cuenta.
+9. La cuenta queda almacenada en RDS.
+10. Con Kafka habilitado, la primera asignación del número genera `CuentaHabilitada` y el consumidor actualiza las métricas.
+
+### Rechazar una solicitud
+
+1. El empleado selecciona rechazar.
+2. API Gateway valida el JWT.
+3. El BFF valida los permisos.
+4. La solicitud cambia a `RECHAZADA`.
+5. No se crea una cuenta.
+
+---
+
+## Proyecto académico
+
+**BancoCloud**
+
+Proyecto desarrollado como solución Cloud Native utilizando servicios de Amazon Web Services, arquitectura basada en microservicios, mensajería asíncrona con RabbitMQ, analítica de eventos con Kafka y un frontend web desarrollado con React + TypeScript.
+
+El objetivo es demostrar la integración entre autenticación, autorización, APIs, microservicios, persistencia, mensajería asíncrona y servicios cloud administrados.
