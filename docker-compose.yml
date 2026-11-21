@@ -1,3 +1,47 @@
+x-rabbitmq-cluster-node: &rabbitmq-cluster-node
+  image: rabbitmq:4-management
+  profiles: ["rabbitmq-cluster"]
+  entrypoint: ["/bin/sh", "-ec"]
+  command:
+    - |
+      install -o rabbitmq -g rabbitmq -m 0400 /cluster-cookie/.erlang.cookie /var/lib/rabbitmq/.erlang.cookie
+      exec docker-entrypoint.sh rabbitmq-server
+  environment:
+    RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+    RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+  configs:
+    - source: rabbitmq-cluster-config
+      target: /etc/rabbitmq/conf.d/30-bancocloud-cluster.conf
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+    interval: 10s
+    timeout: 10s
+    start_period: 30s
+    retries: 12
+
+x-broker: &broker
+  profiles: ["kafka"]
+  image: confluentinc/cp-kafka:7.9.11
+  depends_on: [zookeeper]
+  healthcheck:
+    test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:29092 >/dev/null 2>&1"]
+    interval: 20s
+    timeout: 15s
+    start_period: 45s
+    retries: 8
+
+x-broker-env: &broker-env
+  KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+  KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+  KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+  KAFKA_MIN_INSYNC_REPLICAS: 2
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
 
 services:
   rabbitmq:
@@ -19,5 +63,132 @@ services:
       retries: 10
     restart: unless-stopped
 
+  rabbitmq-cluster-cookie:
+    image: rabbitmq:4-management
+    profiles: ["rabbitmq-cluster"]
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        umask 077
+        if [ ! -s /cluster-cookie/.erlang.cookie ]; then
+          od -An -N32 -tx1 /dev/urandom | tr -d '[:space:]' > /cluster-cookie/.erlang.cookie.tmp
+          test -s /cluster-cookie/.erlang.cookie.tmp
+          mv /cluster-cookie/.erlang.cookie.tmp /cluster-cookie/.erlang.cookie
+        fi
+    volumes:
+      - rabbitmq-cluster-cookie:/cluster-cookie
+
+  rabbitmq-cluster-1:
+    <<: *rabbitmq-cluster-node
+    hostname: rabbitmq-cluster-1
+    depends_on:
+      rabbitmq-cluster-cookie: { condition: service_completed_successfully }
+    ports:
+      - "127.0.0.1:5673:5672"
+      - "127.0.0.1:15673:15672"
+    volumes:
+      - rabbitmq-cluster-1-data:/var/lib/rabbitmq
+      - rabbitmq-cluster-cookie:/cluster-cookie:ro
+
+  rabbitmq-cluster-2:
+    <<: *rabbitmq-cluster-node
+    hostname: rabbitmq-cluster-2
+    depends_on:
+      rabbitmq-cluster-cookie: { condition: service_completed_successfully }
+      rabbitmq-cluster-1: { condition: service_healthy }
+    volumes:
+      - rabbitmq-cluster-2-data:/var/lib/rabbitmq
+      - rabbitmq-cluster-cookie:/cluster-cookie:ro
+
+  rabbitmq-cluster-3:
+    <<: *rabbitmq-cluster-node
+    hostname: rabbitmq-cluster-3
+    depends_on:
+      rabbitmq-cluster-cookie: { condition: service_completed_successfully }
+      rabbitmq-cluster-1: { condition: service_healthy }
+    volumes:
+      - rabbitmq-cluster-3-data:/var/lib/rabbitmq
+      - rabbitmq-cluster-cookie:/cluster-cookie:ro
+
+  zookeeper:
+    profiles: ["kafka"]
+    image: confluentinc/cp-zookeeper:7.9.11
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zk-data:/var/lib/zookeeper/data
+      - zk-log:/var/lib/zookeeper/log
+
+  kafka-1:
+    <<: *broker
+    ports: ["127.0.0.1:9092:9092"]
+    environment:
+      <<: *broker-env
+      KAFKA_BROKER_ID: 1
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:29092,EXTERNAL://localhost:9092
+    volumes: ["kafka-1-data:/var/lib/kafka/data"]
+
+  kafka-2:
+    <<: *broker
+    ports: ["127.0.0.1:9093:9092"]
+    environment:
+      <<: *broker-env
+      KAFKA_BROKER_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-2:29092,EXTERNAL://localhost:9093
+    volumes: ["kafka-2-data:/var/lib/kafka/data"]
+
+  kafka-3:
+    <<: *broker
+    ports: ["127.0.0.1:9094:9092"]
+    environment:
+      <<: *broker-env
+      KAFKA_BROKER_ID: 3
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-3:29092,EXTERNAL://localhost:9094
+    volumes: ["kafka-3-data:/var/lib/kafka/data"]
+
+  kafka-topics:
+    image: confluentinc/cp-kafka:7.9.11
+    profiles: ["kafka"]
+    depends_on:
+      kafka-1: { condition: service_healthy }
+      kafka-2: { condition: service_healthy }
+      kafka-3: { condition: service_healthy }
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        crear_topico() {
+          kafka-topics --bootstrap-server kafka-1:29092,kafka-2:29092,kafka-3:29092 \
+            --create --if-not-exists --topic "$1" --partitions 3 --replication-factor 3 \
+            --config cleanup.policy=delete --config "retention.ms=$2" --config min.insync.replicas=2
+        }
+        crear_topico bancocloud.solicitudes.creadas.v1 604800000
+        crear_topico bancocloud.cuentas.habilitadas.v1 2592000000
+
+  kafka-ui:
+    profiles: ["kafka"]
+    image: ghcr.io/kafbat/kafka-ui:v1.5.0
+    ports: ["127.0.0.1:8085:8080"]
+    depends_on:
+      kafka-topics: { condition: service_completed_successfully }
+    environment:
+      KAFKA_CLUSTERS_0_NAME: BancoCloud
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:29092,kafka-2:29092,kafka-3:29092
+
+configs:
+  rabbitmq-cluster-config:
+    content: |
+      cluster_formation.peer_discovery_backend = classic_config
+      cluster_formation.classic_config.nodes.1 = rabbit@rabbitmq-cluster-1
+
 volumes:
   rabbitmq_data:
+  rabbitmq-cluster-cookie:
+  rabbitmq-cluster-1-data:
+  rabbitmq-cluster-2-data:
+  rabbitmq-cluster-3-data:
+  zk-data:
+  zk-log:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:

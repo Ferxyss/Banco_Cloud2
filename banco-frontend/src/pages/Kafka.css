@@ -1,0 +1,137 @@
+.kafka-topicos {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.kafka-topico-detalle,
+.kafka-grupo {
+  min-width: 0;
+}
+
+.kafka-grupo > select {
+  max-width: 540px;
+}
+
+.kafka-table-scroll {
+  overflow-x: auto;
+}
+
+.kafka-table-scroll .rabbit-admin-table {
+  margin-top: 0;
+  min-width: 360px;
+}
+
+.kafka-configuracion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px 24px;
+  margin: 16px 0;
+}
+
+.kafka-configuracion dt {
+  color: #52617c;
+  font-size: 12px;
+}
+
+.kafka-configuracion dd {
+  margin: 5px 0 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.rabbit-admin-status.kafka-estado {
+  background: #fff4dc;
+  color: #825900;
+}
+
+.kafka-form {
+  display: grid;
+  gap: 12px;
+}
+
+.kafka-form label,
+.kafka-topico-detalle > label,
+.kafka-grupo > label {
+  margin: 0;
+}
+
+.kafka-form input,
+.kafka-topico-detalle > select,
+.kafka-grupo > select {
+  margin: 6px 0 0;
+}
+
+.kafka-form button {
+  justify-self: start;
+}
+
+.kafka-form-columns,
+.kafka-retencion {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.kafka-retencion {
+  grid-template-columns: minmax(0, 220px) auto;
+  align-items: end;
+  margin-top: 16px;
+}
+
+.kafka-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.rabbit-admin-card button.kafka-danger {
+  border-color: #f1c4c4;
+  background: #fff4f4;
+  color: #a82929;
+}
+
+.rabbit-admin-card button.kafka-danger:hover:not(:disabled) {
+  background: #fde8e8;
+}
+
+.kafka-confirmar {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #f1c4c4;
+  border-radius: 10px;
+}
+
+.kafka-page .rabbit-admin-card .rabbit-admin-alert {
+  margin: 12px 0;
+}
+
+.kafka-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+@media (max-width: 1050px) {
+  .kafka-topicos {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .kafka-retencion {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.kafka-page .kafka-form button,
+.kafka-page .kafka-acciones button {
+  width: auto;
+  margin-top: 0;
+}

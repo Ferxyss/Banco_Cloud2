@@ -14,6 +14,7 @@ import Dashboard from "./pages/Dashboard";
 import Cuentas from "./pages/Cuentas";
 import Solicitudes from "./pages/Solicitudes";
 import Empleado from "./pages/Empleado";
+import Kafka from "./pages/Kafka";
 import RabbitMQ from "./pages/RabbitMQ.tsx";
 import AuthTest from "./pages/AuthTest";
 
@@ -272,6 +273,15 @@ function App() {
           element={
             <RutaConRol rolesPermitidos={["Empleado"]}>
               <RabbitMQ />
+            </RutaConRol>
+          }
+        />
+
+        <Route
+          path="/kafka"
+          element={
+            <RutaConRol rolesPermitidos={["Empleado"]}>
+              <Kafka />
             </RutaConRol>
           }
         />

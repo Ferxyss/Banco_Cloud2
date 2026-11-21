@@ -157,6 +157,18 @@ function Sidebar() {
               </span>
               <span>RabbitMQ</span>
             </button>
+
+            <button
+              type="button"
+              className={esActivo("/kafka") ? "active" : ""}
+              aria-current={esActivo("/kafka") ? "page" : undefined}
+              onClick={() => navigate("/kafka")}
+            >
+              <span className="shared-nav-icon">
+                <Icon name="settings" />
+              </span>
+              <span>Kafka</span>
+            </button>
           </>
         )}
       </nav>

@@ -38,7 +38,7 @@ public class SecurityConfig {
                     .permitAll()
 
                 // Administración RabbitMQ: solo empleados
-                .requestMatchers("/api/admin/rabbitmq/**")
+                .requestMatchers("/api/admin/rabbitmq/**", "/api/admin/kafka/**")
                     .hasRole("Empleado")
 
                 .requestMatchers("/api/admin/usuarios/**")
